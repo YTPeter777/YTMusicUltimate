@@ -263,6 +263,12 @@ $('#ytGo').onclick = () => {
   player.innerHTML = `<iframe src="https://www.youtube.com/embed/${m[1]}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
 };
 $('#bgm').onclick = e => { sfxOn = !sfxOn; e.target.textContent = `🎵 背景音效：${sfxOn ? '開' : '關'}`; };
+// 從 3D 場景開啟時用網址 #f2-slot 之類直接切到指定機台
+(function () {
+  const m = location.hash.match(/^#(f[12])(?:-(\w+))?/); if (!m) return;
+  document.querySelector(`nav [data-f=${m[1]}]`).click();
+  if (m[2]) document.querySelector(`[data-g=${m[2]}]`).click();
+})();
 </script>
 </body>
 </html>

@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>3D 遊戲娛樂場</title>
+<style>
+:root{--accent:#ff3fa4;--accent2:#30e0ff;--panel:rgba(20,16,45,.85);--text:#f2f0ff}
+html,body{margin:0;height:100%;overflow:hidden;background:#0d0b1a;color:var(--text);font-family:system-ui,"PingFang TC","Microsoft JhengHei",sans-serif}
+canvas{display:block;touch-action:none}
+.hud{position:fixed;background:var(--panel);border-radius:10px;padding:10px 12px;font-size:14px}
+#info{top:10px;left:10px;max-width:300px}
+#prompt{bottom:110px;left:50%;transform:translateX(-50%);display:none;font-size:18px;border:1px solid var(--accent2)}
+#media{top:10px;right:10px;width:260px}
+#bowlHud{top:10px;left:50%;transform:translateX(-50%);display:none;text-align:center}
+#bowlHud table{border-collapse:collapse;font-size:12px;margin-top:6px}
+#bowlHud td,#bowlHud th{border:1px solid #555;padding:2px 5px}
+.btn{background:#2b2450;color:var(--text);border:1px solid #4a4380;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:14px}
+input[type=text]{width:100%;box-sizing:border-box;margin:6px 0;padding:6px;border-radius:6px;border:1px solid #4a4380;background:#000;color:var(--text)}
+#overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:10}
+#overlay iframe{width:min(900px,95vw);height:min(700px,85vh);border:0;border-radius:12px;background:#0d0b1a}
+#overlay .btn{position:absolute;top:12px;right:12px}
+#joy{position:fixed;left:20px;bottom:20px;width:110px;height:110px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2);display:none;touch-action:none}
+#joy i{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.4)}
+#actBtn{position:fixed;right:24px;bottom:30px;width:80px;height:80px;border-radius:50%;font-size:22px;display:none}
+@media (pointer:coarse){#joy,#actBtn{display:block}#media{width:200px;font-size:12px}}
+</style>
+</head>
+<body>
+<div id="info" class="hud">
+  <b>🎳 3D 遊戲娛樂場</b><br>
+  <span style="font-size:12px;opacity:.8">WASD/方向鍵 移動．Shift 跑．拖曳滑鼠 轉視角<br>E 互動．走右側斜坡上 2F 機台區</span><br>
+  🪙 代幣：<b id="coins">20</b>　📍 <span id="where">1F</span>
+</div>
+<div id="media" class="hud">
+  <b>📺 大螢幕 / 音樂</b>
+  <label class="btn" style="display:inline-block;margin-top:6px">選影片/音樂<input id="file" type="file" accept="video/*,audio/*" multiple hidden></label>
+  <input id="yt" type="text" placeholder="YouTube 網址（開視窗播放）">
+  <button class="btn" id="ytGo">播放 YouTube</button>
+  <div id="nowPlaying" style="font-size:12px;margin-top:6px;opacity:.8">尚未播放</div>
+</div>
+<div id="prompt" class="hud"></div>
+<div id="bowlHud" class="hud"><div id="bowlMsg">A/D 移動．按住空白鍵蓄力，放開出球．Esc 離開</div><table id="score"></table></div>
+<div id="overlay"><iframe id="frame"></iframe><button class="btn" id="closeOv">✕ 離開機台</button></div>
+<div id="joy"><i></i></div>
+<button id="actBtn" class="btn">E</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+let coins = 20; const setCoins = d => { coins += d; $('#coins').textContent = coins; };
+
+// ---------- 場景 ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0d0b1a); scene.fog = new THREE.Fog(0x0d0b1a, 30, 70);
+const camera = new THREE.PerspectiveCamera(60, 1, .1, 200);
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+scene.add(new THREE.HemisphereLight(0x8888ff, 0x221133, .6));
+const sun = new THREE.DirectionalLight(0xffffff, .6); sun.position.set(5, 20, 10); sun.castShadow = true;
+Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20 }); scene.add(sun);
+[[-7, 3.5, 0, 0xff3fa4], [6, 7.5, -7, 0x30e0ff], [6, 3.5, 8, 0xffcc33]].forEach(([x, y, z, c]) => { const l = new THREE.PointLight(c, 1, 22); l.position.set(x, y, z); scene.add(l); });
+
+const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: .7 });
+function box(w, h, d, c, x, y, z, m) { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m || mat(c)); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; scene.add(o); return o; }
+
+// 建築：x -12~12，z -15~15
+const W = 12, D = 15, H2 = 4; // 2F 高度
+box(24, .2, 30, 0x2a2245, 0, -.1, 0);                 // 1F 地板
+box(24, 9, .3, 0x1a1535, 0, 4.5, -D);                 // 後牆
+box(.3, 9, 30, 0x1a1535, -W, 4.5, 0); box(.3, 9, 30, 0x1a1535, W, 4.5, 0);
+box(24, 9, .3, 0x1a1535, 0, 4.5, D).visible = false; // 前牆隱形，鏡頭才不會被擋
+// 2F 夾層：x 0~12，z -15~0
+box(12, .3, 15, 0x3a2a60, 6, H2 - .15, -7.5);
+box(12, 1, .1, 0x30e0ff, 6, H2 + .5, 0).material.emissive = new THREE.Color(0x0a4050); // 欄杆
+box(.1, 1, 15, 0x30e0ff, 0, H2 + .5, -7.5).material.emissive = new THREE.Color(0x0a4050);
+// 斜坡：x 9.5~12，z 0 → 10 上升
+const ramp = box(2.5, .3, Math.hypot(10, H2), 0x554488, 10.75, H2 / 2 - .15, 5);
+ramp.rotation.x = Math.atan2(H2, 10);
+// 霓虹招牌
+function sign(text, x, y, z, ry = 0, w = 6) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 96; const g = c.getContext('2d');
+  g.font = 'bold 60px sans-serif'; g.textAlign = 'center'; g.fillStyle = '#ff3fa4'; g.shadowColor = '#ff3fa4'; g.shadowBlur = 20; g.fillText(text, 256, 70);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 96 / 512), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
+  m.position.set(x, y, z); m.rotation.y = ry; scene.add(m);
+}
+sign('1F 保齡球館', -6, 2.6, 14.7, Math.PI);
+sign('2F 機台區', 6, 6.8, -14.8);
+
+// ---------- 大螢幕（影片材質）----------
+const video = document.createElement('video'); video.playsInline = true; video.crossOrigin = 'anonymous';
+const screenTex = new THREE.VideoTexture(video);
+const idle = document.createElement('canvas'); idle.width = 512; idle.height = 288;
+const ig = idle.getContext('2d'); ig.fillStyle = '#111'; ig.fillRect(0, 0, 512, 288); ig.fillStyle = '#30e0ff'; ig.font = '32px sans-serif'; ig.textAlign = 'center'; ig.fillText('📺 右上角選擇影片播放', 256, 150);
+const screenMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(idle) });
+const screen = new THREE.Mesh(new THREE.PlaneGeometry(9, 5.06), screenMat); screen.position.set(-6, 5.8, -14.8); scene.add(screen);
+
+// ---------- 保齡球道 ----------
+const LANES = [-9, -5.5], FOUL_Z = 9, PIN_Z = -11;
+LANES.forEach(x => {
+  box(2.2, .1, 22, 0xd8a868, x, .05, -1);
+  box(.4, .06, 22, 0x333333, x - 1.3, .03, -1); box(.4, .06, 22, 0x333333, x + 1.3, .03, -1);
+  box(2.2, .02, .05, 0xff2222, x, .11, FOUL_Z);
+  box(2.6, 1, .6, 0x222222, x, .5, FOUL_Z + 3).material.emissive = new THREE.Color(0x220011); // 回球機
+});
+const pinGeo = new THREE.CylinderGeometry(.06, .1, .45, 12), pinMat = mat(0xffffff);
+function makeLane(x) {
+  const lane = { x, pins: [], ball: null };
+  for (let r = 0; r < 4; r++) for (let i = 0; i <= r; i++) {
+    const m = new THREE.Mesh(pinGeo, pinMat); m.castShadow = true; scene.add(m);
+    lane.pins.push({ m, hx: x + (i - r / 2) * .3, hz: PIN_Z - r * .26 });
+  }
+  const b = new THREE.Mesh(new THREE.SphereGeometry(.13, 20, 16), new THREE.MeshStandardMaterial({ color: 0xff3fa4, metalness: .3, roughness: .2 }));
+  b.castShadow = true; b.position.set(x, .13, FOUL_Z + 1); scene.add(b); lane.ball = b;
+  return lane;
+}
+const lanes = LANES.map(makeLane);
+function rack(lane, onlyStanding) {
+  lane.pins.forEach(p => {
+    if (onlyStanding && p.down) { p.m.visible = false; p.gone = true; return; }
+    if (!onlyStanding) { p.gone = false; p.down = false; p.m.visible = true; p.x = p.hx; p.z = p.hz; }
+    p.vx = p.vz = 0; p.m.rotation.set(0, 0, 0); p.m.position.set(p.x, .225, p.z);
+  });
+}
+lanes.forEach(l => rack(l));
+
+// ---------- 2F 機台 ----------
+const machines = [];
+function cabinet(x, z, name, color, game) {
+  const g = new THREE.Group(); g.position.set(x, H2, z);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2, .9), mat(color)); body.position.y = 1; body.castShadow = true; g.add(body);
+  const sc = new THREE.Mesh(new THREE.PlaneGeometry(.9, .7), new THREE.MeshBasicMaterial({ color: 0x111111 })); sc.position.set(0, 1.4, .46); g.add(sc);
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64; const t = c.getContext('2d');
+  t.fillStyle = '#fff'; t.font = 'bold 40px sans-serif'; t.textAlign = 'center'; t.fillText(name, 128, 46);
+  const lbl = new THREE.Mesh(new THREE.PlaneGeometry(1.1, .28), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true })); lbl.position.set(0, 2.2, .46); g.add(lbl);
+  g.rotation.y = 0; scene.add(g); machines.push({ g, sc, name, game, x, z, t: Math.random() * 10 });
+}
+cabinet(2.5, -13.5, '🔨 打地鼠', 0xcc3355, 'mole');
+cabinet(5.5, -13.5, '🎰 拉霸機', 0x3355cc, 'slot');
+cabinet(8.5, -13.5, '⚡ 反應機', 0x33aa66, 'react');
+cabinet(2.5, -8, '🎰 拉霸機', 0x9933cc, 'slot');
+cabinet(5.5, -8, '🔨 打地鼠', 0xcc8833, 'mole');
+
+// ---------- 角色 ----------
+const player = new THREE.Group(); scene.add(player);
+const skin = mat(0xffd2a8), shirt = mat(0x30a0ff), pants = mat(0x333355);
+const torso = new THREE.Mesh(new THREE.BoxGeometry(.5, .6, .3), shirt); torso.position.y = 1.05; player.add(torso);
+const head = new THREE.Mesh(new THREE.SphereGeometry(.2, 16, 12), skin); head.position.y = 1.55; player.add(head);
+const cap = new THREE.Mesh(new THREE.SphereGeometry(.21, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat(0xff3fa4)); cap.position.y = 1.58; player.add(cap);
+function limb(m, x, y, h) { const piv = new THREE.Group(); piv.position.set(x, y, 0); const l = new THREE.Mesh(new THREE.BoxGeometry(.15, h, .15), m); l.position.y = -h / 2; l.castShadow = true; piv.add(l); player.add(piv); return piv; }
+const legL = limb(pants, -.13, .75, .75), legR = limb(pants, .13, .75, .75), armL = limb(shirt, -.33, 1.32, .55), armR = limb(shirt, .33, 1.32, .55);
+player.traverse(o => o.castShadow = true);
+player.position.set(0, 0, 12);
+let yaw = Math.PI, camYaw = 0, camPitch = .35, walkT = 0;
+
+// 地面高度
+function groundAt(x, z, curY) {
+  if (x > 9.5 && z >= 0 && z <= 10) return H2 * (1 - z / 10);
+  if (x > 0 && z < 0 && curY > H2 / 2) return H2;
+  return 0;
+}
+function blocked(x, z, y) {
+  if (Math.abs(x) > W - .4 || Math.abs(z) > D - .4) return true;
+  if (y < 1 && x > -.3 && z < .3) return true;                    // 1F 夾層下方：視為牆（簡化）
+  if (y > H2 - .5 && z < 0 && x < .4) return true;                // 2F 欄杆
+  if (y > H2 - .5 && z > -.3 && z < .3 && x < 9.4) return true;   // 2F 前緣欄杆
+  if (y < .5 && x > 9.3 && z > 0 && z < 10 && player.position.x <= 9.3) return true; // 斜坡側邊
+  for (const m of machines) if (y > H2 - .5 && Math.abs(x - m.x) < .9 && Math.abs(z - m.z) < .8) return true;
+  return false;
+}
+
+// ---------- 輸入 ----------
+const keys = {}; let joy = { x: 0, y: 0 };
+addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyE') act(); if (e.code === 'Escape') exitMode(); if (e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', e => keys[e.code] = false);
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', e => drag = { x: e.clientX, y: e.clientY });
+addEventListener('pointermove', e => { if (!drag) return; camYaw -= (e.clientX - drag.x) * .005; camPitch = Math.max(.05, Math.min(1.2, camPitch + (e.clientY - drag.y) * .004)); drag = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerup', () => drag = null);
+const joyEl = $('#joy'), knob = joyEl.firstElementChild;
+joyEl.addEventListener('pointerdown', e => { e.stopPropagation(); joyEl.setPointerCapture(e.pointerId); });
+joyEl.addEventListener('pointermove', e => {
+  if (!joyEl.hasPointerCapture(e.pointerId)) return; const r = joyEl.getBoundingClientRect();
+  let x = (e.clientX - r.left - 55) / 55, y = (e.clientY - r.top - 55) / 55; const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
+  joy = { x, y }; knob.style.transform = `translate(${x * 35}px,${y * 35}px)`;
+});
+joyEl.addEventListener('pointerup', () => { joy = { x: 0, y: 0 }; knob.style.transform = ''; });
+// 手機：E 鍵在保齡模式下當「蓄力」按鈕
+$('#actBtn').addEventListener('pointerdown', e => { e.stopPropagation(); if (mode === 'bowl') keys.Space = true; else act(); });
+$('#actBtn').addEventListener('pointerup', () => keys.Space = false);
+
+// ---------- 互動 ----------
+let mode = 'walk', near = null, bowl = null;
+function findNear() {
+  const p = player.position;
+  for (const l of lanes) if (p.y < 1 && Math.abs(p.x - l.x) < 1.3 && Math.abs(p.z - (FOUL_Z + 1.5)) < 1.8) return { type: 'lane', l, text: 'E：開始打保齡球' };
+  for (const m of machines) if (p.y > H2 - .5 && Math.hypot(p.x - m.x, p.z - (m.z + 1.1)) < 1) return { type: 'machine', m, text: `E：玩 ${m.name}` };
+  if (p.y < 1 && Math.hypot(p.x + 6, p.z + 8) < 6) return { type: 'screen', text: video.src ? 'E：播放 / 暫停大螢幕' : '右上角選影片，大螢幕就會播放' };
+  return null;
+}
+function act() {
+  if (mode !== 'walk' || !near) return;
+  if (near.type === 'lane') startBowling(near.l);
+  else if (near.type === 'machine') { mode = 'machine'; $('#frame').src = `index.html#f2-${near.m.game}`; $('#overlay').style.display = 'flex'; }
+  else if (near.type === 'screen' && video.src) video.paused ? video.play() : video.pause();
+}
+function exitMode() {
+  if (mode === 'machine') { $('#overlay').style.display = 'none'; $('#frame').src = 'about:blank'; }
+  if (mode === 'bowl') { $('#bowlHud').style.display = 'none'; player.visible = true; }
+  mode = 'walk';
+}
+$('#closeOv').onclick = exitMode;
+
+// ---------- 保齡球玩法 ----------
+function startBowling(l) {
+  mode = 'bowl'; player.visible = false; $('#prompt').style.display = 'none'; rack(l);
+  bowl = { l, frames: Array.from({ length: 10 }, () => []), frame: 0, aim: 0, power: 0, charging: false, rolling: false, vx: 0, vz: 0, t: 0 };
+  resetBall(); drawScore(); $('#bowlHud').style.display = 'block'; $('#bowlMsg').textContent = 'A/D 移動．按住空白鍵蓄力，放開出球．Esc 離開';
+}
+function resetBall() { bowl.rolling = false; bowl.l.ball.position.set(bowl.l.x + bowl.aim, .13, FOUL_Z + .5); bowl.l.ball.visible = true; }
+function bowlUpdate(dt) {
+  const b = bowl, ball = b.l.ball;
+  if (!b.rolling) {
+    if (keys.KeyA || keys.ArrowLeft || joy.x < -.3) b.aim -= dt * 1.5;
+    if (keys.KeyD || keys.ArrowRight || joy.x > .3) b.aim += dt * 1.5;
+    b.aim = Math.max(-.9, Math.min(.9, b.aim)); ball.position.x = b.l.x + b.aim;
+    if (keys.Space && b.frame < 10) { b.charging = true; b.power = Math.min(1, b.power + dt * .8); }
+    else if (b.charging) {
+      b.charging = false; b.rolling = true; b.t = 0; b.standing = b.l.pins.filter(p => !p.down && !p.gone).length;
+      b.vz = -(6 + b.power * 8); b.vx = (Math.random() - .5) * .6; b.power = 0;
+    }
+    $('#bowlMsg').textContent = b.charging ? '力量 ' + '█'.repeat(Math.round(b.power * 10)) : $('#bowlMsg').textContent;
+    return;
+  }
+  b.t += dt; ball.position.x += b.vx * dt; ball.position.z += b.vz * dt; ball.rotation.x -= b.vz * dt / .13;
+  if (Math.abs(ball.position.x - b.l.x) > 1.1) { b.vx = 0; b.vz *= .995; ball.position.y = .06; } // 洗溝
+  for (const p of b.l.pins) {
+    if (p.gone) continue;
+    p.x += p.vx * dt; p.z += p.vz * dt; p.vx *= .97; p.vz *= .97;
+    const dx = p.x - ball.position.x, dz = p.z - ball.position.z, d = Math.hypot(dx, dz);
+    if (d < .23 && ball.position.y > .1) { p.vx = dx / d * 4 + b.vx; p.vz = dz / d * 4 + b.vz * .4; p.down = true; }
+    for (const q of b.l.pins) if (q !== p && !q.gone) {
+      const ex = q.x - p.x, ez = q.z - p.z, e = Math.hypot(ex, ez);
+      if (e < .2 && Math.hypot(p.vx, p.vz) > .4) { q.vx += ex / e * 2; q.vz += ez / e * 2; q.down = true; }
+    }
+    p.m.position.set(p.x, p.down ? .08 : .225, p.z);
+    if (p.down) { p.m.rotation.z = Math.PI / 2; p.m.rotation.y = Math.atan2(p.vx, p.vz); }
+  }
+  if (ball.position.z < PIN_Z - 1.5) ball.visible = false;
+  if ((ball.position.z < PIN_Z - 1.5 && b.l.pins.every(p => Math.hypot(p.vx, p.vz) < .05)) || b.t > 5) endRoll();
+}
+function endRoll() {
+  const b = bowl, left = b.l.pins.filter(p => !p.down).length, knocked = b.standing - left, f = b.frames[b.frame];
+  f.push(knocked);
+  let next = b.frame < 9 ? (f[0] === 10 || f.length === 2) : (f.length === 3 || (f.length === 2 && f[0] + f[1] < 10));
+  $('#bowlMsg').textContent = knocked === 10 && f.length === 1 ? '🎉 STRIKE 全倒！' : left === 0 ? '✨ SPARE 補中！' : `擊倒 ${knocked} 支`;
+  if (left === 0) setCoins(1);
+  if (next) { b.frame++; rack(b.l); } else if (left === 0) rack(b.l); else rack(b.l, true);
+  if (b.frame >= 10) $('#bowlMsg').textContent += `　完場！總分 ${total()}（Esc 離開）`;
+  resetBall(); drawScore();
+}
+function total() {
+  const r = bowl.frames.flat(); let s = 0, i = 0;
+  for (let f = 0; f < 10 && i < r.length; f++) {
+    if (r[i] === 10) { s += 10 + (r[i + 1] || 0) + (r[i + 2] || 0); i++; }
+    else if (r[i] + (r[i + 1] || 0) === 10) { s += 10 + (r[i + 2] || 0); i += 2; }
+    else { s += r[i] + (r[i + 1] || 0); i += 2; }
+  }
+  return s;
+}
+function drawScore() {
+  $('#score').innerHTML = '<tr>' + bowl.frames.map((_, i) => `<th>${i + 1}</th>`).join('') + '<th>總</th></tr><tr>' +
+    bowl.frames.map(f => `<td>${f.join(' ')}</td>`).join('') + `<td><b>${total()}</b></td></tr>`;
+}
+
+// ---------- 影音 ----------
+let queue = [], qi = 0; const audio = new Audio();
+function playItem(i) {
+  qi = i; const it = queue[i]; if (!it) return;
+  video.pause(); audio.pause();
+  if (it.type.startsWith('video')) { video.src = it.url; video.play(); screenMat.map = screenTex; screenMat.needsUpdate = true; }
+  else { audio.src = it.url; audio.play(); }
+  $('#nowPlaying').textContent = '▶ ' + it.name;
+}
+video.onended = audio.onended = () => queue.length && playItem((qi + 1) % queue.length);
+$('#file').onchange = e => { const start = queue.length; for (const f of e.target.files) queue.push({ url: URL.createObjectURL(f), type: f.type, name: f.name }); playItem(start); };
+$('#ytGo').onclick = () => {
+  const m = $('#yt').value.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/);
+  if (!m) return alert('無法辨識的 YouTube 網址');
+  mode = 'machine'; $('#frame').src = `https://www.youtube.com/embed/${m[1]}?autoplay=1`; $('#overlay').style.display = 'flex';
+};
+
+// ---------- 主迴圈 ----------
+const clock = new THREE.Clock();
+function update(dt) {
+  machines.forEach(m => { m.t += dt; m.sc.material.color.setHSL((m.t * .2) % 1, .8, .35 + Math.sin(m.t * 4) * .1); });
+  if (mode === 'bowl') {
+    bowlUpdate(dt);
+    const ball = bowl.l.ball, tz = bowl.rolling ? Math.max(ball.position.z + 3, PIN_Z + 3) : FOUL_Z + 3.5;
+    camera.position.lerp(new THREE.Vector3(bowl.l.x, 1.6, tz), .1); camera.lookAt(bowl.l.x, .3, PIN_Z); return;
+  }
+  if (mode === 'walk') {
+    let mx = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.x;
+    let mz = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0) + joy.y;
+    const len = Math.hypot(mx, mz), p = player.position;
+    if (len > .1) {
+      mx /= Math.max(1, len); mz /= Math.max(1, len);
+      const sp = (keys.ShiftLeft || keys.ShiftRight ? 7 : 4) * dt, c = Math.cos(camYaw), s = Math.sin(camYaw);
+      const dx = (mx * c + mz * s) * sp, dz = (-mx * s + mz * c) * sp;
+      if (!blocked(p.x + dx, p.z, p.y)) p.x += dx;
+      if (!blocked(p.x, p.z + dz, p.y)) p.z += dz;
+      yaw = Math.atan2(dx, dz); walkT += dt * 10;
+    } else walkT = 0;
+    p.y += (groundAt(p.x, p.z, p.y) - p.y) * .4;
+    player.rotation.y += ((yaw - player.rotation.y + Math.PI * 3) % (Math.PI * 2) - Math.PI) * .2;
+    const sw = Math.sin(walkT) * .6; legL.rotation.x = sw; legR.rotation.x = -sw; armL.rotation.x = -sw; armR.rotation.x = sw;
+    near = findNear(); $('#prompt').style.display = near ? 'block' : 'none'; if (near) $('#prompt').textContent = near.text;
+    $('#where').textContent = p.y > H2 / 2 ? '2F 機台區' : '1F 保齡球館';
+  } else $('#prompt').style.display = 'none';
+  const p = player.position, dist = 6;
+  camera.position.lerp(new THREE.Vector3(p.x + Math.sin(camYaw) * Math.cos(camPitch) * dist, p.y + 1.4 + Math.sin(camPitch) * dist, p.z + Math.cos(camYaw) * Math.cos(camPitch) * dist), .15);
+  camera.position.x = Math.max(-W + .5, Math.min(W - .5, camera.position.x));
+  camera.position.z = Math.max(-D + .5, Math.min(D + 4, camera.position.z));
+  camera.lookAt(p.x, p.y + 1.2, p.z);
+}
+renderer.setAnimationLoop(() => { update(Math.min(clock.getDelta(), .05)); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
