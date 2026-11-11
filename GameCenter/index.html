@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>遊戲娛樂場</title>
+<style>
+:root{--bg:#0d0b1a;--panel:#1b1733;--accent:#ff3fa4;--accent2:#30e0ff;--text:#f2f0ff;--muted:#9a94c0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,"PingFang TC","Microsoft JhengHei",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:12px 16px;background:linear-gradient(90deg,#2a1050,#0f2a50)}
+h1{margin:0;font-size:22px;text-shadow:0 0 10px var(--accent)}
+nav button,.btn{background:var(--panel);color:var(--text);border:1px solid #3a3366;border-radius:8px;padding:8px 14px;cursor:pointer;font-size:15px}
+nav button.on{background:var(--accent);border-color:var(--accent)}
+main{display:grid;grid-template-columns:1fr 340px;gap:16px;padding:16px;max-width:1200px;margin:auto}
+@media(max-width:860px){main{grid-template-columns:1fr}}
+.card{background:var(--panel);border-radius:12px;padding:14px}
+.floor{display:none}.floor.on{display:block}
+canvas{width:100%;background:#000;border-radius:8px;display:block;touch-action:none}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.muted{color:var(--muted);font-size:13px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+td,th{border:1px solid #3a3366;text-align:center;padding:3px}
+.moles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:360px;margin:auto}
+.hole{aspect-ratio:1;border-radius:50%;background:#2b2450;font-size:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none}
+.slots{display:flex;gap:8px;justify-content:center;font-size:56px;margin:12px 0}
+.slots div{background:#000;border:2px solid var(--accent2);border-radius:8px;width:80px;text-align:center}
+video,iframe{width:100%;aspect-ratio:16/9;background:#000;border:0;border-radius:8px}
+audio{width:100%}
+input[type=text]{flex:1;min-width:0;padding:8px;border-radius:8px;border:1px solid #3a3366;background:#000;color:var(--text)}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎳 遊戲娛樂場</h1>
+  <nav>
+    <button data-f="f1" class="on">1F 保齡球館</button>
+    <button data-f="f2">2F 機台遊戲區</button>
+  </nav>
+  <div>🪙 代幣：<b id="coins">20</b></div>
+</header>
+
+<main>
+<section>
+  <!-- 1F 保齡球 -->
+  <div id="f1" class="floor on card">
+    <h2>1F 保齡球館</h2>
+    <p class="muted">滑鼠/手指左右移動選位置，按住蓄力，放開出球。每局 10 格。</p>
+    <canvas id="lane" width="400" height="640"></canvas>
+    <div class="row"><button class="btn" id="newGame">重新開局</button><span id="bowlMsg"></span></div>
+    <table id="score"></table>
+  </div>
+
+  <!-- 2F 機台 -->
+  <div id="f2" class="floor card">
+    <h2>2F 機台遊戲區</h2>
+    <div class="row">
+      <button class="btn" data-g="mole">🔨 打地鼠</button>
+      <button class="btn" data-g="slot">🎰 拉霸機</button>
+      <button class="btn" data-g="react">⚡ 反應機</button>
+    </div>
+    <div id="g-mole" class="game">
+      <p class="muted">花 2 代幣，30 秒打越多越好（每 10 分得 1 代幣）。</p>
+      <div class="row"><button class="btn" id="moleStart">開始</button> 分數 <b id="moleScore">0</b> ⏱ <b id="moleTime">30</b></div>
+      <div class="moles" id="moles"></div>
+    </div>
+    <div id="g-slot" class="game" hidden>
+      <p class="muted">每次 1 代幣。三個相同 ×10，兩個相同 ×2。</p>
+      <div class="slots"><div>🍒</div><div>🍋</div><div>⭐</div></div>
+      <div class="row"><button class="btn" id="spin">拉！</button><span id="slotMsg"></span></div>
+    </div>
+    <div id="g-react" class="game" hidden>
+      <p class="muted">畫面變綠立刻點！快於 300ms 得 2 代幣。</p>
+      <div id="reactBox" style="height:200px;border-radius:8px;background:#552;display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer">點我開始</div>
+    </div>
+  </div>
+</section>
+
+<!-- 影音區 -->
+<aside class="card">
+  <h2>📺 影音區</h2>
+  <p class="muted">播放本機影片/音樂，或貼上 YouTube 網址。</p>
+  <div class="row"><label class="btn">選擇影片/音樂<input type="file" id="file" accept="video/*,audio/*" multiple hidden></label></div>
+  <div class="row"><input type="text" id="yt" placeholder="YouTube 網址"><button class="btn" id="ytGo">播放</button></div>
+  <div id="player"></div>
+  <ol id="playlist" class="muted"></ol>
+  <div class="row"><button class="btn" id="bgm">🎵 背景音效：開</button></div>
+</aside>
+</main>
+
+<script>
+// ---------- 共用 ----------
+let coins = 20, sfxOn = true;
+const $ = s => document.querySelector(s);
+const setCoins = d => { coins += d; $('#coins').textContent = coins; };
+const AC = new (window.AudioContext || window.webkitAudioContext)();
+function beep(f = 440, t = .1, type = 'square') {
+  if (!sfxOn) return;
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.value = f; g.gain.value = .08;
+  o.connect(g).connect(AC.destination); o.start();
+  g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + t); o.stop(AC.currentTime + t);
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button,.floor').forEach(e => e.classList.remove('on'));
+  b.classList.add('on'); $('#' + b.dataset.f).classList.add('on');
+});
+document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.game').forEach(g => g.hidden = true);
+  $('#g-' + b.dataset.g).hidden = false;
+});
+
+// ---------- 1F 保齡球 ----------
+const cv = $('#lane'), cx = cv.getContext('2d');
+const W = 400, H = 640, LANE_L = 60, LANE_R = 340, PIN_R = 9, BALL_R = 14;
+let pins, ball, aimX = 200, charging = false, power = 0, rolling = false;
+let frames, frame, roll, standingBefore;
+
+function rackPins() {
+  pins = [];
+  const top = 90, gap = 34;
+  for (let r = 0; r < 4; r++) for (let i = 0; i <= r; i++)
+    pins.push({ x: 200 + (i - r / 2) * gap, y: top + (3 - r) * gap * .87, vx: 0, vy: 0, down: false });
+}
+function newGame() { frames = Array.from({ length: 10 }, () => []); frame = 0; roll = 0; rackPins(); resetBall(); drawScore(); $('#bowlMsg').textContent = ''; }
+function resetBall() { ball = { x: aimX, y: H - 50, vx: 0, vy: 0 }; rolling = false; }
+
+function pointerX(e) { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) * W / r.width; }
+cv.addEventListener('pointermove', e => { if (!rolling) { aimX = Math.max(LANE_L + BALL_R, Math.min(LANE_R - BALL_R, pointerX(e))); ball.x = aimX; } });
+cv.addEventListener('pointerdown', e => { if (rolling || frame >= 10) return; AC.resume(); charging = true; power = 0; });
+addEventListener('pointerup', () => {
+  if (!charging) return; charging = false;
+  standingBefore = pins.filter(p => !p.down).length;
+  const spin = (Math.random() - .5) * 1.2;
+  ball.vy = -(6 + power * 9); ball.vx = spin; rolling = true; beep(120, .4, 'sawtooth');
+});
+
+function physics() {
+  if (charging) power = Math.min(1, power + .015);
+  if (!rolling) return;
+  ball.x += ball.vx; ball.y += ball.vy;
+  if (ball.x < LANE_L + BALL_R || ball.x > LANE_R - BALL_R) { ball.vx = 0; ball.vy *= .6; } // 洗溝
+  for (const p of pins) {
+    p.x += p.vx; p.y += p.vy; p.vx *= .96; p.vy *= .96;
+    const hit = (a, b, rr) => { const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy); return d < rr ? [dx / d, dy / d] : null; };
+    const h = hit(ball, p, BALL_R + PIN_R);
+    if (h) { p.vx = h[0] * 6 + ball.vx; p.vy = h[1] * 6 + ball.vy * .5; if (!p.down) beep(600 + Math.random() * 300, .05); p.down = true; }
+    for (const q of pins) if (q !== p) {
+      const k = hit(p, q, PIN_R * 2);
+      if (k && Math.hypot(p.vx, p.vy) > .5) { q.vx += k[0] * 3; q.vy += k[1] * 3; q.down = true; }
+    }
+  }
+  const moving = pins.some(p => Math.hypot(p.vx, p.vy) > .1);
+  if (ball.y < -30 && !moving) endRoll();
+}
+
+function endRoll() {
+  const left = pins.filter(p => !p.down).length;
+  const knocked = standingBefore - left;
+  frames[frame].push(knocked);
+  const f = frames[frame];
+  let next = false;
+  if (frame < 9) next = f[0] === 10 || f.length === 2;
+  else { const s = f[0] + (f[1] || 0); next = f.length === 3 || (f.length === 2 && s < 10); }
+  $('#bowlMsg').textContent = knocked === 10 && f.length === 1 ? '🎉 全倒 STRIKE！' : left === 0 ? '✨ 補中 SPARE！' : `擊倒 ${knocked} 支`;
+  if (left === 0) { beep(880, .3, 'triangle'); setCoins(1); }
+  if (next) { frame++; rackPins(); }
+  else if (left === 0) rackPins();
+  else pins = pins.filter(p => !p.down);
+  if (frame >= 10) $('#bowlMsg').textContent += `　完場！總分 ${total()}`;
+  resetBall(); drawScore();
+}
+
+function total() {
+  const r = frames.flat(); let s = 0, i = 0;
+  for (let f = 0; f < 10 && i < r.length; f++) {
+    if (r[i] === 10) { s += 10 + (r[i + 1] || 0) + (r[i + 2] || 0); i++; }
+    else if (r[i] + (r[i + 1] || 0) === 10) { s += 10 + (r[i + 2] || 0); i += 2; }
+    else { s += r[i] + (r[i + 1] || 0); i += 2; }
+  }
+  return s;
+}
+function drawScore() {
+  $('#score').innerHTML = '<tr>' + frames.map((_, i) => `<th>${i + 1}</th>`).join('') + '<th>總分</th></tr><tr>' +
+    frames.map(f => `<td>${f.map((v, j) => v === 10 && (j === 0 || f[j-1] === 10 || (j===2&&f[0]+f[1]===10)) ? 'X' : j > 0 && f[j - 1] + v === 10 && f[j-1] !== 10 ? '/' : v === 0 ? '-' : v).join(' ')}</td>`).join('') +
+    `<td><b>${total()}</b></td></tr>`;
+}
+
+function draw() {
+  cx.fillStyle = '#111'; cx.fillRect(0, 0, W, H);
+  const g = cx.createLinearGradient(LANE_L, 0, LANE_R, 0);
+  g.addColorStop(0, '#c08a4a'); g.addColorStop(.5, '#e6b878'); g.addColorStop(1, '#c08a4a');
+  cx.fillStyle = g; cx.fillRect(LANE_L, 0, LANE_R - LANE_L, H);
+  cx.fillStyle = '#333'; cx.fillRect(LANE_L - 20, 0, 20, H); cx.fillRect(LANE_R, 0, 20, H);
+  cx.fillStyle = '#7a4'; for (let i = 0; i < 7; i++) { const x = LANE_L + 30 + i * 37; cx.beginPath(); cx.moveTo(x, 430); cx.lineTo(x - 6, 445); cx.lineTo(x + 6, 445); cx.fill(); }
+  for (const p of pins) {
+    cx.fillStyle = p.down ? 'rgba(255,255,255,.35)' : '#fff';
+    cx.beginPath(); cx.arc(p.x, p.y, PIN_R, 0, 7); cx.fill();
+    if (!p.down) { cx.fillStyle = '#d22'; cx.fillRect(p.x - PIN_R, p.y - 2, PIN_R * 2, 3); }
+  }
+  if (!rolling) { cx.strokeStyle = 'rgba(48,224,255,.6)'; cx.setLineDash([6, 6]); cx.beginPath(); cx.moveTo(ball.x, ball.y); cx.lineTo(ball.x, 60); cx.stroke(); cx.setLineDash([]); }
+  cx.fillStyle = '#ff3fa4'; cx.beginPath(); cx.arc(ball.x, ball.y, BALL_R, 0, 7); cx.fill();
+  if (charging) { cx.fillStyle = '#333'; cx.fillRect(20, H - 20, W - 40, 10); cx.fillStyle = `hsl(${120 - power * 120},90%,50%)`; cx.fillRect(20, H - 20, (W - 40) * power, 10); }
+  cx.fillStyle = '#fff'; cx.font = '16px sans-serif'; cx.fillText(`第 ${Math.min(frame + 1, 10)} 格`, 10, 24);
+}
+(function loop() { physics(); draw(); requestAnimationFrame(loop); })();
+$('#newGame').onclick = newGame; newGame();
+
+// ---------- 2F 打地鼠 ----------
+const moles = $('#moles'); let moleScore = 0, moleTimer, moleTick, moleActive = -1;
+for (let i = 0; i < 9; i++) { const h = document.createElement('div'); h.className = 'hole'; h.onclick = () => whack(i); moles.appendChild(h); }
+function whack(i) { if (i === moleActive) { moleScore++; $('#moleScore').textContent = moleScore; beep(700, .08); moles.children[i].textContent = '💥'; moleActive = -1; } }
+$('#moleStart').onclick = () => {
+  if (moleTimer || coins < 2) return; AC.resume(); setCoins(-2); moleScore = 0; $('#moleScore').textContent = 0;
+  let t = 30; $('#moleTime').textContent = t;
+  moleTick = setInterval(() => { [...moles.children].forEach(c => c.textContent = ''); moleActive = Math.random() * 9 | 0; moles.children[moleActive].textContent = '🐹'; }, 700);
+  moleTimer = setInterval(() => { $('#moleTime').textContent = --t; if (t <= 0) { clearInterval(moleTimer); clearInterval(moleTick); moleTimer = null; moleActive = -1; setCoins(Math.floor(moleScore / 10)); beep(300, .4); } }, 1000);
+};
+
+// ---------- 2F 拉霸機 ----------
+const SYM = ['🍒', '🍋', '⭐', '🔔', '💎', '7️⃣'];
+$('#spin').onclick = () => {
+  if (coins < 1) { $('#slotMsg').textContent = '代幣不足'; return; }
+  AC.resume(); setCoins(-1); const reels = [...document.querySelectorAll('.slots div')]; let n = 0;
+  const iv = setInterval(() => {
+    reels.forEach(r => r.textContent = SYM[Math.random() * SYM.length | 0]); beep(300 + n * 20, .03);
+    if (++n > 20) {
+      clearInterval(iv); const v = reels.map(r => r.textContent);
+      const win = v[0] === v[1] && v[1] === v[2] ? 10 : (v[0] === v[1] || v[1] === v[2] || v[0] === v[2]) ? 2 : 0;
+      setCoins(win); $('#slotMsg').textContent = win ? `贏 ${win} 代幣！` : '再試一次'; if (win) beep(1000, .3, 'triangle');
+    }
+  }, 60);
+};
+
+// ---------- 2F 反應機 ----------
+const rb = $('#reactBox'); let rState = 0, rStart, rTo;
+rb.onclick = () => {
+  if (rState === 0) { rState = 1; rb.style.background = '#a22'; rb.textContent = '等它變綠…'; rTo = setTimeout(() => { rState = 2; rStart = performance.now(); rb.style.background = '#2a4'; rb.textContent = '點！'; }, 1000 + Math.random() * 3000); }
+  else if (rState === 1) { clearTimeout(rTo); rState = 0; rb.style.background = '#552'; rb.textContent = '太早了！再點一次'; }
+  else { const ms = Math.round(performance.now() - rStart); rState = 0; rb.style.background = '#552'; rb.textContent = `${ms} ms ${ms < 300 ? '+2 代幣！' : ''}（再點開始）`; if (ms < 300) setCoins(2); }
+};
+
+// ---------- 影音區 ----------
+const player = $('#player'), list = $('#playlist'); let queue = [], qi = 0;
+function playItem(i) {
+  qi = i; const it = queue[i]; if (!it) return;
+  player.innerHTML = ''; const el = document.createElement(it.type.startsWith('video') ? 'video' : 'audio');
+  el.src = it.url; el.controls = true; el.autoplay = true; el.onended = () => playItem((qi + 1) % queue.length);
+  player.appendChild(el); [...list.children].forEach((li, j) => li.style.color = j === i ? 'var(--accent2)' : '');
+}
+$('#file').onchange = e => {
+  for (const f of e.target.files) {
+    queue.push({ url: URL.createObjectURL(f), type: f.type, name: f.name });
+    const li = document.createElement('li'); li.textContent = f.name; li.style.cursor = 'pointer';
+    const idx = queue.length - 1; li.onclick = () => playItem(idx); list.appendChild(li);
+  }
+  if (!player.firstChild) playItem(0);
+};
+$('#ytGo').onclick = () => {
+  const m = $('#yt').value.match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/);
+  if (!m) { alert('無法辨識的 YouTube 網址'); return; }
+  player.innerHTML = `<iframe src="https://www.youtube.com/embed/${m[1]}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+};
+$('#bgm').onclick = e => { sfxOn = !sfxOn; e.target.textContent = `🎵 背景音效：${sfxOn ? '開' : '關'}`; };
+</script>
+</body>
+</html>
