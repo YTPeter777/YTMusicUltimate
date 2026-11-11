@@ -203,8 +203,8 @@ function draw() {
   if (charging) { cx.fillStyle = '#333'; cx.fillRect(20, H - 20, W - 40, 10); cx.fillStyle = `hsl(${120 - power * 120},90%,50%)`; cx.fillRect(20, H - 20, (W - 40) * power, 10); }
   cx.fillStyle = '#fff'; cx.font = '16px sans-serif'; cx.fillText(`第 ${Math.min(frame + 1, 10)} 格`, 10, 24);
 }
-(function loop() { physics(); draw(); requestAnimationFrame(loop); })();
 $('#newGame').onclick = newGame; newGame();
+(function loop() { physics(); draw(); requestAnimationFrame(loop); })();
 
 // ---------- 2F 打地鼠 ----------
 const moles = $('#moles'); let moleScore = 0, moleTimer, moleTick, moleActive = -1;
