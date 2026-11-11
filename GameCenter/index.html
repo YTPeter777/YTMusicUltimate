@@ -114,7 +114,7 @@ document.querySelectorAll('[data-g]').forEach(b => b.onclick = () => {
 const cv = $('#lane'), cx = cv.getContext('2d');
 const W = 400, H = 640, LANE_L = 60, LANE_R = 340, PIN_R = 9, BALL_R = 14;
 let pins, ball, aimX = 200, charging = false, power = 0, rolling = false;
-let frames, frame, roll, standingBefore;
+let frames, frame, roll, standingBefore, rollT = 0;
 
 function rackPins() {
   pins = [];
@@ -132,7 +132,7 @@ addEventListener('pointerup', () => {
   if (!charging) return; charging = false;
   standingBefore = pins.filter(p => !p.down).length;
   const spin = (Math.random() - .5) * 1.2;
-  ball.vy = -(6 + power * 9); ball.vx = spin; rolling = true; beep(120, .4, 'sawtooth');
+  ball.vy = -(6 + power * 9); ball.vx = spin; rolling = true; rollT = 0; beep(120, .4, 'sawtooth');
 });
 
 function physics() {
@@ -151,7 +151,8 @@ function physics() {
     }
   }
   const moving = pins.some(p => Math.hypot(p.vx, p.vy) > .1);
-  if (ball.y < -30 && !moving) endRoll();
+  rollT++;
+  if ((ball.y < -30 && !moving) || rollT > 300) endRoll();
 }
 
 function endRoll() {
